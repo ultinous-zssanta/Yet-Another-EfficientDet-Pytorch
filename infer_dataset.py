@@ -24,6 +24,7 @@ def evaluate(input_list, model, level=0, score_threshold=0.05, iou_threshold=0.5
   results = {}
   for img_filename in input_list:
     results[img_filename] = []
+    print(img_filename)
     ori_imgs, framed_imgs, framed_metas = preprocess(img_filename, max_size=DEFAULT_INPUT_SIZES[level])
     x = torch.from_numpy(framed_imgs[0])
     x = x.cuda(0)
@@ -94,16 +95,23 @@ def _get_input_list(input_list_file, img_root=None):
 
 def filter_and_dump_results_to_csv(output_csv, results, keep_categories=None):
   def _convert_to_bbox_format(fname, boxes, scores, delimiter="\t"):
-    boxes = np.array(boxes)
-    scores = np.array(scores)[:, np.newaxis]
-    return delimiter.join([fname] + [("%.3f" % x) for x in np.hstack((boxes, scores)).flatten()])
+    if boxes:
+      boxes = np.array(boxes)
+      scores = np.array(scores)[:, np.newaxis]
+      return delimiter.join([fname] + [("%.3f" % x) for x in np.hstack((boxes, scores)).flatten()])
+    else:
+      return fname
 
   def _category_filter(b):
     return (keep_categories is None) or (b["label"] in keep_categories)
 
   with open(output_csv, "w") as fp:
     for fname, boxes in results.items():
-      bbs, scores = zip(*[(b["box"], b["score"]) for b in boxes if _category_filter(b)])
+      packed_results = [(b["box"], b["score"]) for b in boxes if _category_filter(b)]
+      if packed_results:
+        bbs, scores = zip(*packed_results)
+      else:
+        bbs, scores = [], []
       fp.write(_convert_to_bbox_format(fname, bbs, scores) + "\n")
 
 
