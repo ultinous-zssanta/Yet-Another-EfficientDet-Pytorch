@@ -6,6 +6,7 @@ import yaml
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from backbone import EfficientDetBackbone
 from efficientdet.utils import BBoxTransform, ClipBoxes
@@ -17,14 +18,13 @@ DEFAULT_ANCHOR_RATIOS = [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)]
 DEFAULT_INPUT_SIZES = [512, 640, 768, 896, 1024, 1280, 1280, 1536]
 
 
-def evaluate(input_list, model, level=0, score_threshold=0.05, iou_threshold=0.5, target_label=None):
+def evaluate(input_list, model, level, score_threshold=0.05, iou_threshold=0.5):
   regressBoxes = BBoxTransform()
   clipBoxes = ClipBoxes()
 
   results = {}
-  for img_filename in input_list:
+  for img_filename in tqdm(input_list):
     results[img_filename] = []
-    print(img_filename)
     ori_imgs, framed_imgs, framed_metas = preprocess(img_filename, max_size=DEFAULT_INPUT_SIZES[level])
     x = torch.from_numpy(framed_imgs[0])
     x = x.cuda(0)
@@ -131,7 +131,7 @@ def main():
   model.cuda(0)
 
   inputs = _get_input_list(args.input_list, args.image_root)
-  results = evaluate(inputs, model)
+  results = evaluate(inputs, model, args.level, iou_threshold=args.iou_threshold)
   filter_and_dump_results_to_csv("output.csv", results, [0])
 
 
