@@ -13,6 +13,9 @@ import uuid
 
 from utils.sync_batchnorm import SynchronizedBatchNorm2d
 
+from torch.nn.init import _calculate_fan_in_and_fan_out, _no_grad_normal_
+import math
+
 
 def invert_affine(metas: Union[float, list, tuple], preds):
     for i in range(len(preds)):
@@ -64,6 +67,17 @@ def aspectaware_resize_padding(image, width, height, interpolation=None, means=N
 
 def preprocess(*image_path, max_size=512, mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229)):
     ori_imgs = [cv2.imread(img_path) for img_path in image_path]
+    normalized_imgs = [(img / 255 - mean) / std for img in ori_imgs]
+    imgs_meta = [aspectaware_resize_padding(img[..., ::-1], max_size, max_size,
+                                            means=None) for img in normalized_imgs]
+    framed_imgs = [img_meta[0] for img_meta in imgs_meta]
+    framed_metas = [img_meta[1:] for img_meta in imgs_meta]
+
+    return ori_imgs, framed_imgs, framed_metas
+
+
+def preprocess_video(*frame_from_video, max_size=512, mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229)):
+    ori_imgs = frame_from_video
     normalized_imgs = [(img / 255 - mean) / std for img in ori_imgs]
     imgs_meta = [aspectaware_resize_padding(img[..., ::-1], max_size, max_size,
                                             means=None) for img in normalized_imgs]
@@ -200,7 +214,26 @@ def init_weights(model):
         is_conv_layer = isinstance(module, nn.Conv2d)
 
         if is_conv_layer:
-            nn.init.kaiming_uniform_(module.weight.data)
+            if "conv_list" or "header" in name:
+                variance_scaling_(module.weight.data)
+            else:
+                nn.init.kaiming_uniform_(module.weight.data)
 
             if module.bias is not None:
-                module.bias.data.zero_()
+                if "classifier.header" in name:
+                    bias_value = -np.log((1 - 0.01) / 0.01)
+                    torch.nn.init.constant_(module.bias, bias_value)
+                else:
+                    module.bias.data.zero_()
+
+
+def variance_scaling_(tensor, gain=1.):
+    # type: (Tensor, float) -> Tensor
+    r"""
+    initializer for SeparableConv in Regressor/Classifier
+    reference: https://keras.io/zh/initializers/  VarianceScaling
+    """
+    fan_in, fan_out = _calculate_fan_in_and_fan_out(tensor)
+    std = math.sqrt(gain / float(fan_in))
+
+    return _no_grad_normal_(tensor, 0., std)

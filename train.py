@@ -19,6 +19,7 @@ import numpy as np
 from tqdm.autonotebook import tqdm
 
 from efficientdet.loss import FocalLoss
+from utils.sync_batchnorm import patch_replication_callback
 from utils.utils import replace_w_sync_bn, CustomDataParallel, get_last_weights, init_weights
 
 
@@ -110,13 +111,13 @@ def train(opt):
                   'num_workers': opt.num_workers}
 
     input_sizes = [512, 640, 768, 896, 1024, 1280, 1280, 1536]
-    training_set = CocoDataset(root_dir=opt.data_path + params.project_name, set=params.train_set,
+    training_set = CocoDataset(root_dir=os.path.join(opt.data_path, params.project_name), set=params.train_set,
                                transform=transforms.Compose([Normalizer(mean=params.mean, std=params.std),
                                                              Augmenter(),
                                                              Resizer(input_sizes[opt.compound_coef])]))
     training_generator = DataLoader(training_set, **training_params)
 
-    val_set = CocoDataset(root_dir=opt.data_path + params.project_name, set=params.val_set,
+    val_set = CocoDataset(root_dir=os.path.join(opt.data_path, params.project_name), set=params.val_set,
                           transform=transforms.Compose([Normalizer(mean=params.mean, std=params.std),
                                                         Resizer(input_sizes[opt.compound_coef])]))
     val_generator = DataLoader(val_set, **val_params)
@@ -169,6 +170,9 @@ def train(opt):
     # but it would also slow down the training by a little bit.
     if params.num_gpus > 1 and opt.batch_size // params.num_gpus < 4:
         model.apply(replace_w_sync_bn)
+        use_sync_bn = True
+    else:
+        use_sync_bn = False
 
     writer = SummaryWriter(opt.log_path + f'/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}/')
 
@@ -179,6 +183,8 @@ def train(opt):
         model = model.cuda()
         if params.num_gpus > 1:
             model = CustomDataParallel(model, params.num_gpus)
+            if use_sync_bn:
+                patch_replication_callback(model)
 
     if opt.optim == 'adamw':
         optimizer = torch.optim.AdamW(model.parameters(), opt.lr)
@@ -287,7 +293,7 @@ def train(opt):
                 print(
                     'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
                         epoch, opt.num_epochs, cls_loss, reg_loss, loss))
-                writer.add_scalars('Total_loss', {'val': loss}, step)
+                writer.add_scalars('Loss', {'val': loss}, step)
                 writer.add_scalars('Regression_loss', {'val': reg_loss}, step)
                 writer.add_scalars('Classfication_loss', {'val': cls_loss}, step)
 
@@ -297,28 +303,11 @@ def train(opt):
 
                     save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
 
-                    # onnx export is not tested.
-                    # dummy_input = torch.rand(opt.batch_size, 3, 512, 512)
-                    # if torch.cuda.is_available():
-                    #     dummy_input = dummy_input.cuda()
-                    # if isinstance(model, nn.DataParallel):
-                    #     model.module.backbone_net.model.set_swish(memory_efficient=False)
-                    #
-                    #     torch.onnx.export(model.module, dummy_input,
-                    #                       os.path.join(opt.saved_path, 'signatrix_efficientdet_coco.onnx'),
-                    #                       verbose=False)
-                    #     model.module.backbone_net.model.set_swish(memory_efficient=True)
-                    # else:
-                    #     model.backbone_net.model.set_swish(memory_efficient=False)
-                    #
-                    #     torch.onnx.export(model, dummy_input,
-                    #                       os.path.join(opt.saved_path, 'signatrix_efficientdet_coco.onnx'),
-                    #                       verbose=False)
-                    #     model.backbone_net.model.set_swish(memory_efficient=True)
-
+                model.train()
+                           
                 # Early stopping
                 if epoch - best_epoch > opt.es_patience > 0:
-                    print('[Info] Stop training at epoch {}. The lowest loss achieved is {}'.format(epoch, loss))
+                    print('[Info] Stop training at epoch {}. The lowest loss achieved is {}'.format(epoch, best_loss))
                     break
     except KeyboardInterrupt:
         save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
