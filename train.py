@@ -30,6 +30,9 @@ class Params:
     def __getattr__(self, item):
         return self.params.get(item, None)
 
+    def __str__(self):
+        return str(self.params)
+
 
 def get_args():
     parser = argparse.ArgumentParser('Yet Another EfficientDet Pytorch: SOTA object detection network - Zylo117')
@@ -84,6 +87,9 @@ class ModelWithLoss(nn.Module):
 
 def train(opt):
     params = Params(f'projects/{opt.project}.yml')
+
+    print("Args:", opt)
+    print("Project params:", params)
 
     if params.num_gpus == 0:
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
