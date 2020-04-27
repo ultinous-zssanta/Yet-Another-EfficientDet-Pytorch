@@ -61,6 +61,7 @@ def get_args():
     parser.add_argument('--load_weights', type=str, default=None,
                         help='whether to load weights from a checkpoint, set None to initialize, set \'last\' to load last checkpoint')
     parser.add_argument('--saved_path', type=str, default='logs/')
+    parser.add_argument('--load_pretrained_backbone', default=False, action="store_true")
     parser.add_argument('--debug', type=bool, default=False, help='whether visualize the predicted boxes of trainging, '
                                                                   'the output images will be in test/')
 
@@ -129,7 +130,8 @@ def train(opt):
     val_generator = DataLoader(val_set, **val_params)
 
     model = EfficientDetBackbone(num_classes=len(params.obj_list), compound_coef=opt.compound_coef,
-                                 ratios=eval(params.anchors_ratios), scales=eval(params.anchors_scales))
+                                 ratios=eval(params.anchors_ratios), scales=eval(params.anchors_scales),
+                                 load_weights=opt.load_pretrained_backbone)
 
     # load last weights
     if opt.load_weights is not None:
