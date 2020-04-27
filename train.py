@@ -4,6 +4,7 @@
 
 import datetime
 import os
+import sys
 import argparse
 import traceback
 
@@ -62,6 +63,7 @@ def get_args():
                         help='whether to load weights from a checkpoint, set None to initialize, set \'last\' to load last checkpoint')
     parser.add_argument('--saved_path', type=str, default='logs/')
     parser.add_argument('--load_pretrained_backbone', default=False, action="store_true")
+    parser.add_argument('--lr_scheduler', default="plateau", choices=("plateau", "cosine"))
     parser.add_argument('--debug', type=bool, default=False, help='whether visualize the predicted boxes of trainging, '
                                                                   'the output images will be in test/')
 
@@ -199,8 +201,6 @@ def train(opt):
     else:
         optimizer = torch.optim.SGD(model.parameters(), opt.lr, momentum=0.9, nesterov=True)
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
-
     epoch = 0
     best_loss = 1e5
     best_epoch = 0
@@ -209,6 +209,15 @@ def train(opt):
 
     num_iter_per_epoch = len(training_generator)
 
+    if opt.lr_scheduler == "cosine":
+        print("Cosine LR-scheduler")
+        last_epoch = step // num_iter_per_epoch
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, opt.num_epochs,
+                                                               last_epoch=last_epoch if last_epoch else -1)
+    else:
+        print("Plateau LR-scheduler")
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
+
     try:
         for epoch in range(opt.num_epochs):
             last_epoch = step // num_iter_per_epoch
@@ -216,7 +225,7 @@ def train(opt):
                 continue
 
             epoch_loss = []
-            progress_bar = tqdm(training_generator)
+            progress_bar = tqdm(training_generator, file=sys.stdout)
             for iter, data in enumerate(progress_bar):
                 if iter < step - last_epoch * num_iter_per_epoch:
                     progress_bar.update()
@@ -246,16 +255,14 @@ def train(opt):
 
                     epoch_loss.append(float(loss))
 
+                    current_lr = optimizer.param_groups[0]['lr']
                     progress_bar.set_description(
-                        'Step: {}. Epoch: {}/{}. Iteration: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}. Total loss: {:.5f}'.format(
+                        'Step: {}. Epoch: {}/{}. Iteration: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}. Total loss: {:.5f}, LR: {:.5e}'.format(
                             step, epoch, opt.num_epochs, iter + 1, num_iter_per_epoch, cls_loss.item(),
-                            reg_loss.item(), loss.item()))
+                            reg_loss.item(), loss.item(), current_lr))
                     writer.add_scalars('Loss', {'train': loss}, step)
                     writer.add_scalars('Regression_loss', {'train': reg_loss}, step)
                     writer.add_scalars('Classfication_loss', {'train': cls_loss}, step)
-
-                    # log learning_rate
-                    current_lr = optimizer.param_groups[0]['lr']
                     writer.add_scalar('learning_rate', current_lr, step)
 
                     step += 1
@@ -268,7 +275,11 @@ def train(opt):
                     print('[Error]', traceback.format_exc())
                     print(e)
                     continue
-            scheduler.step(np.mean(epoch_loss))
+
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(np.mean(epoch_loss))
+            else:
+                scheduler.step()
 
             if epoch % opt.val_interval == 0:
                 model.eval()
