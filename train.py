@@ -64,6 +64,7 @@ def get_args():
     parser.add_argument('--saved_path', type=str, default='logs/')
     parser.add_argument('--load_pretrained_backbone', default=False, action="store_true")
     parser.add_argument('--lr_scheduler', default="plateau", choices=("plateau", "cosine"))
+    parser.add_argument('--force_sync_bn', default=False, action="store_true")
     parser.add_argument('--debug', type=bool, default=False, help='whether visualize the predicted boxes of trainging, '
                                                                   'the output images will be in test/')
 
@@ -178,7 +179,8 @@ def train(opt):
     # apply sync_bn can solve it,
     # by packing all mini-batch across all gpus as one batch and normalize, then send it back to all gpus.
     # but it would also slow down the training by a little bit.
-    if params.num_gpus > 1 and opt.batch_size // params.num_gpus < 4:
+    if opt.force_sync_bn or (params.num_gpus > 1 and opt.batch_size // params.num_gpus < 4):
+        print("Using Synchronized BatchNormalization")
         model.apply(replace_w_sync_bn)
         use_sync_bn = True
     else:
