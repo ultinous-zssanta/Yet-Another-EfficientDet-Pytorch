@@ -67,6 +67,7 @@ def get_args():
     parser.add_argument('--force_sync_bn', default=False, action="store_true")
     parser.add_argument('--debug', type=bool, default=False, help='whether visualize the predicted boxes of trainging, '
                                                                   'the output images will be in test/')
+    parser.add_argument('--tqdm_ncols', default=None, type=int)
 
     args = parser.parse_args()
     return args
@@ -227,7 +228,7 @@ def train(opt):
                 continue
 
             epoch_loss = []
-            progress_bar = tqdm(training_generator, file=sys.stdout)
+            progress_bar = tqdm(training_generator, file=sys.stdout, ncols=opt.tqdm_ncols)
             for iter, data in enumerate(progress_bar):
                 if iter < step - last_epoch * num_iter_per_epoch:
                     progress_bar.update()
@@ -259,7 +260,7 @@ def train(opt):
 
                     current_lr = optimizer.param_groups[0]['lr']
                     progress_bar.set_description(
-                        'Step: {}. Epoch: {}/{}. Iteration: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}. Total loss: {:.5f}, LR: {:.5e}'.format(
+                        'Step: {:06d}. Epoch: {}/{}. Iteration: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}. Total loss: {:.5f}, LR: {:.5e}'.format(
                             step, epoch, opt.num_epochs, iter + 1, num_iter_per_epoch, cls_loss.item(),
                             reg_loss.item(), loss.item(), current_lr))
                     writer.add_scalars('Loss', {'train': loss}, step)
@@ -271,11 +272,11 @@ def train(opt):
 
                     if step % opt.save_interval == 0 and step > 0:
                         save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
-                        print('checkpoint...')
+                        tqdm.write('checkpoint...')
 
                 except Exception as e:
-                    print('[Error]', traceback.format_exc())
-                    print(e)
+                    tqdm.write('[Error] %s' % traceback.format_exc())
+                    tqdm.write(str(e))
                     continue
 
             if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
