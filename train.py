@@ -68,6 +68,7 @@ def get_args():
     parser.add_argument('--debug', type=bool, default=False, help='whether visualize the predicted boxes of trainging, '
                                                                   'the output images will be in test/')
     parser.add_argument('--tqdm_ncols', default=None, type=int)
+    parser.add_argument("--weight_decay", default=1e-2, type=float)
 
     args = parser.parse_args()
     return args
@@ -200,9 +201,10 @@ def train(opt):
                 patch_replication_callback(model)
 
     if opt.optim == 'adamw':
-        optimizer = torch.optim.AdamW(model.parameters(), opt.lr)
+        optimizer = torch.optim.AdamW(model.parameters(), opt.lr, weight_decay=opt.weight_decay)
     else:
-        optimizer = torch.optim.SGD(model.parameters(), opt.lr, momentum=0.9, nesterov=True)
+        optimizer = torch.optim.SGD(model.parameters(), opt.lr, momentum=0.9, nesterov=True,
+                                    weight_decay=opt.weight_decay)
 
     epoch = 0
     best_loss = 1e5
