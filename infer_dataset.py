@@ -18,14 +18,14 @@ DEFAULT_ANCHOR_RATIOS = [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)]
 DEFAULT_INPUT_SIZES = [512, 640, 768, 896, 1024, 1280, 1280, 1536]
 
 
-def evaluate(input_list, model, level, score_threshold=0.05, iou_threshold=0.5):
+def evaluate(input_list, model, level, score_threshold=0.05, iou_threshold=0.5, convert_to_gray=False):
   regressBoxes = BBoxTransform()
   clipBoxes = ClipBoxes()
 
   results = {}
-  for img_filename in tqdm(input_list):
-    results[img_filename] = []
-    ori_imgs, framed_imgs, framed_metas = preprocess(img_filename, max_size=DEFAULT_INPUT_SIZES[level])
+  for img_filename, img_name in tqdm(input_list):
+    results[img_name] = []
+    ori_imgs, framed_imgs, framed_metas = preprocess(img_filename, max_size=DEFAULT_INPUT_SIZES[level], convert_to_gray=convert_to_gray)
     x = torch.from_numpy(framed_imgs[0])
     x = x.cuda(0)
     x = x.float()
@@ -61,7 +61,7 @@ def evaluate(input_list, model, level, score_threshold=0.05, iou_threshold=0.5):
 
         if score < score_threshold:
           break
-        results[img_filename].append({
+        results[img_name].append({
           "score": score,
           "label": label,
           "box": list(box),
@@ -77,6 +77,7 @@ def create_arg_parser():
   parser.add_argument("-w", "--weights", type=str, default=None, help="/path/to/weights")
   parser.add_argument("--iou_threshold", type=float, default=0.5, help="iou threshold")
   parser.add_argument("--num_classes", type=int, default=90)
+  parser.add_argument("--convert_to_gray", default=False, action="store_true")
   return parser
 
 
@@ -88,7 +89,7 @@ def _get_input_list(input_list_file, img_root=None):
       if not l_trimmed:
         continue
       output.append(
-        os.path.join(img_root, l_trimmed) if img_root is not None else l_trimmed
+        (os.path.join(img_root, l_trimmed) if img_root is not None else l_trimmed, l_trimmed)
       )
   return output
 
@@ -118,6 +119,7 @@ def filter_and_dump_results_to_csv(output_csv, results, keep_categories=None):
 def main():
   parser = create_arg_parser()
   args = parser.parse_args()
+  print(args)
 
   target_model = "efficientdet-d{}".format(args.level)
   weights_path = "weights/{}.pth".format(target_model) if args.weights is None else args.weights
@@ -131,7 +133,7 @@ def main():
   model.cuda(0)
 
   inputs = _get_input_list(args.input_list, args.image_root)
-  results = evaluate(inputs, model, args.level, iou_threshold=args.iou_threshold)
+  results = evaluate(inputs, model, args.level, iou_threshold=args.iou_threshold, convert_to_gray=args.convert_to_gray)
   filter_and_dump_results_to_csv("output.csv", results, [0])
 
 
