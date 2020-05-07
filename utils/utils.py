@@ -65,13 +65,17 @@ def aspectaware_resize_padding(image, width, height, interpolation=None, means=N
     return canvas, new_w, new_h, old_w, old_h, padding_w, padding_h,
 
 
-def preprocess(*image_path, max_size=512, mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229)):
+def preprocess(*image_path, max_size=512, mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229), convert_to_gray=False):
     ori_imgs = [cv2.imread(img_path) for img_path in image_path]
-    return (ori_imgs,) + preprocess_images(ori_imgs, max_size=max_size, mean=mean, std=std)
+    return (ori_imgs,) + preprocess_images(ori_imgs, max_size=max_size, mean=mean, std=std, convert_to_gray=convert_to_gray)
 
 
-def preprocess_images(ori_imgs, max_size=512, mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229)):
-    normalized_imgs = [(img / 255 - mean) / std for img in ori_imgs]
+def preprocess_images(ori_imgs, max_size=512, mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229), convert_to_gray=False):
+    if convert_to_gray:
+      conv = [np.tile(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)[..., np.newaxis], 3) for img in ori_imgs]
+    else:
+      conv = ori_imgs
+    normalized_imgs = [(img / 255 - mean) / std for img in conv]
     imgs_meta = [aspectaware_resize_padding(img[..., ::-1], max_size, max_size,
                                             means=None) for img in normalized_imgs]
     framed_imgs = [img_meta[0] for img_meta in imgs_meta]
