@@ -3,6 +3,7 @@
 import os
 import argparse
 import yaml
+import cv2
 
 import numpy as np
 import torch
@@ -10,7 +11,7 @@ from tqdm import tqdm
 
 from backbone import EfficientDetBackbone
 from efficientdet.utils import BBoxTransform, ClipBoxes
-from utils.utils import preprocess, invert_affine, postprocess
+from utils.utils import preprocess, invert_affine, postprocess, preprocess_images
 
 
 DEFAULT_ANCHOR_SCALES = [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]
@@ -18,14 +19,21 @@ DEFAULT_ANCHOR_RATIOS = [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)]
 DEFAULT_INPUT_SIZES = [512, 640, 768, 896, 1024, 1280, 1280, 1536]
 
 
+def my_preprocess(img_obj, max_size=512, mean=(0.406, 0.456, 0.485), std=(0.225, 0.224, 0.229), convert_to_gray=False):
+  if isinstance(img_obj, str):
+    return preprocess(img_obj, max_size=max_size, mean=mean, std=std, convert_to_gray=convert_to_gray)
+  elif isinstance(img_obj, np.ndarray):
+    return ([img_obj], ) + preprocess_images([img_obj], max_size=max_size, mean=mean, std=std, convert_to_gray=convert_to_gray)
+
+
 def evaluate(input_list, model, level, score_threshold=0.05, iou_threshold=0.5, convert_to_gray=False):
   regressBoxes = BBoxTransform()
   clipBoxes = ClipBoxes()
 
   results = {}
-  for img_filename, img_name in tqdm(input_list):
+  for img_obj, img_name in tqdm(input_list):
     results[img_name] = []
-    ori_imgs, framed_imgs, framed_metas = preprocess(img_filename, max_size=DEFAULT_INPUT_SIZES[level], convert_to_gray=convert_to_gray)
+    ori_imgs, framed_imgs, framed_metas = my_preprocess(img_obj, max_size=DEFAULT_INPUT_SIZES[level], convert_to_gray=convert_to_gray)
     x = torch.from_numpy(framed_imgs[0])
     x = x.cuda(0)
     x = x.float()
@@ -78,6 +86,7 @@ def create_arg_parser():
   parser.add_argument("--iou_threshold", type=float, default=0.5, help="iou threshold")
   parser.add_argument("--num_classes", type=int, default=90)
   parser.add_argument("--convert_to_gray", default=False, action="store_true")
+  parser.add_argument("--video_input", default=False, action="store_true")
   return parser
 
 
@@ -116,6 +125,18 @@ def filter_and_dump_results_to_csv(output_csv, results, keep_categories=None):
       fp.write(_convert_to_bbox_format(fname, bbs, scores) + "\n")
 
 
+def video_frame_generator(video_filename):
+  cap = cv2.VideoCapture(video_filename)
+  frame_ind = 0
+  while cap.isOpened():
+    valid, frame = cap.read()
+    if valid:
+      yield frame, str(frame_ind)
+    else:
+      break
+    frame_ind += 1
+
+
 def main():
   parser = create_arg_parser()
   args = parser.parse_args()
@@ -132,9 +153,16 @@ def main():
 
   model.cuda(0)
 
-  inputs = _get_input_list(args.input_list, args.image_root)
-  results = evaluate(inputs, model, args.level, iou_threshold=args.iou_threshold, convert_to_gray=args.convert_to_gray)
-  filter_and_dump_results_to_csv("output.csv", results, [0])
+  if args.video_input:
+    inputs = _get_input_list(args.input_list, args.image_root)
+    for video_filename, video_name in inputs:
+      results = evaluate(video_frame_generator(video_filename), model, args.level, iou_threshold=args.iou_threshold, convert_to_gray=args.convert_to_gray, score_threshold=0.1)
+      fname, _ = os.path.splitext(video_name)
+      filter_and_dump_results_to_csv("%s.csv" % fname, results, [0])
+  else:
+    inputs = _get_input_list(args.input_list, args.image_root)
+    results = evaluate(inputs, model, args.level, iou_threshold=args.iou_threshold, convert_to_gray=args.convert_to_gray)
+    filter_and_dump_results_to_csv("output.csv", results, [0])
 
 
 if __name__ == "__main__":
